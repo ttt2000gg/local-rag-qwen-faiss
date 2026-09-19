@@ -1,0 +1,3 @@
+ollama
+faiss-cpu
+numpy
