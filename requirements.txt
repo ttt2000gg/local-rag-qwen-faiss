@@ -2,4 +2,7 @@ ollama
 faiss-cpu
 numpy
 fastapi
-unicorn
+uvicorn
+aiogram
+httpx
+python-dotenv

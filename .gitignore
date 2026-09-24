@@ -1,19 +1,88 @@
-# Virtual environment
-venv/
-.venv/
+# =========================
+# Python
+# =========================
 
-# Python cache
 __pycache__/
 *.py[cod]
+*$py.class
 
-# Environment variables / secrets
+*.so
+.Python
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# =========================
+# Secrets
+# =========================
+
 .env
 .env.*
+!.env.example
 
+# =========================
+# Logs
+# =========================
+
+*.log
+logs/
+
+# =========================
+# Generated files
+# =========================
+
+outputs/
+output/
+generated/
+*.png
+*.jpg
+*.jpeg
+*.webp
+
+# =========================
+# ComfyUI
+# =========================
+
+ComfyUI/
+ComfyUI/venv/
+ComfyUI/models/
+ComfyUI/output/
+ComfyUI/input/
+ComfyUI/temp/
+ComfyUI/user/
+ComfyUI/__pycache__/
+
+# =========================
+# AI models
+# =========================
+
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.gguf
+
+# =========================
+# OS
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
 # IDE
+# =========================
+
 .vscode/
 .idea/
 
-# OS files
-.DS_Store
-Thumbs.db
+# =========================
+# Misc
+# =========================
+
+*.tmp
+*.temp
