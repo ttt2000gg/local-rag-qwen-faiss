@@ -1,3 +1,5 @@
 ollama
 faiss-cpu
 numpy
+fastapi
+unicorn

@@ -34,3 +34,17 @@ Top-K relevant chunks
       │
       ▼
   Answer + sources
+
+Запуск неиросети:
+
+source venv/bin/activate - запуск окружения
+
+deactivate - выйти из окружения
+
+ollama serve - запуск нейросети (в другом терминале)
+
+ollama run artemiy-ai - запуск моего образа
+
+ollama create artemiy-ai -f Modelfile - обновить инструкции
+
+python rag.py - создание embeddings
