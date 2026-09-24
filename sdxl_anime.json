@@ -1,0 +1,121 @@
+{
+  "72": {
+    "inputs": {
+      "ckpt_name": "sd_xl_base_1.0.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple",
+    "_meta": {
+      "title": "Загрузить сheckpoint"
+    }
+  },
+  "73": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "crop_w": 0,
+      "crop_h": 0,
+      "target_width": 1024,
+      "target_height": 1024,
+      "text_g": "anime illustration, Japanese anime style, detailed anime artwork, expressive character design, clean lineart, detailed background, cinematic composition",
+      "text_l": "anime illustration, Japanese anime style, detailed anime artwork, expressive character design, clean lineart, detailed background, cinematic composition",
+      "clip": [
+        "72",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncodeSDXL",
+    "_meta": {
+      "title": "Кодирование текста CLIP SDXL"
+    }
+  },
+  "74": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "crop_w": 0,
+      "crop_h": 0,
+      "target_width": 1024,
+      "target_height": 1024,
+      "text_g": "photorealistic, realistic photography, 3d render, CGI, low quality, blurry, distorted, deformed, bad anatomy, extra limbs, duplicate objects, text, watermark",
+      "text_l": "photorealistic, realistic photography, 3d render, CGI, low quality, blurry, distorted, deformed, bad anatomy, extra limbs, duplicate objects, text, watermark",
+      "clip": [
+        "72",
+        1
+      ]
+    },
+    "class_type": "CLIPTextEncodeSDXL",
+    "_meta": {
+      "title": "Кодирование текста CLIP SDXL"
+    }
+  },
+  "75": {
+    "inputs": {
+      "width": 1024,
+      "height": 1024,
+      "batch_size": 1
+    },
+    "class_type": "EmptyLatentImage",
+    "_meta": {
+      "title": "Пустое латентное изображение"
+    }
+  },
+  "76": {
+    "inputs": {
+      "seed": 234892463545216,
+      "steps": 30,
+      "cfg": 7,
+      "sampler_name": "dpmpp_2m_sde",
+      "scheduler": "karras",
+      "denoise": 1,
+      "model": [
+        "72",
+        0
+      ],
+      "positive": [
+        "73",
+        0
+      ],
+      "negative": [
+        "74",
+        0
+      ],
+      "latent_image": [
+        "75",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "77": {
+    "inputs": {
+      "samples": [
+        "76",
+        0
+      ],
+      "vae": [
+        "72",
+        2
+      ]
+    },
+    "class_type": "VAEDecode",
+    "_meta": {
+      "title": "Декодировать VAE"
+    }
+  },
+  "81": {
+    "inputs": {
+      "filename_prefix": "ComfyUI",
+      "images": [
+        "77",
+        0
+      ]
+    },
+    "class_type": "SaveImage",
+    "_meta": {
+      "title": "Сохранить изображение"
+    }
+  }
+}

@@ -17,6 +17,70 @@ MODEL_NAME = "artemiy-ai:latest"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+STYLE_PROMPTS = {
+    "fast": "",
+
+    "photorealistic": (
+        "photorealistic photography, realistic materials, realistic lighting, "
+        "realistic textures, natural proportions, highly detailed"
+    ),
+
+    "pro": (
+        "photorealistic photography, realistic materials, realistic lighting, "
+        "realistic textures, natural proportions, highly detailed"
+    ),
+
+    "artistic": (
+        "highly detailed digital artwork, dramatic composition, expressive colors, "
+        "beautiful lighting, detailed environment, polished illustration"
+    ),
+
+    "anime": (
+        "anime illustration, Japanese anime style, detailed anime artwork, "
+        "expressive character design, clean lineart, detailed background, "
+        "cinematic composition"
+    ),
+}
+
+NEGATIVE_PROMPTS = {
+    "fast": (
+        "low quality, blurry, distorted, deformed, bad anatomy, "
+        "extra limbs, duplicate objects, text, watermark"
+    ),
+
+    "photorealistic": (
+        "cartoon, anime, illustration, drawing, painting, sketch, "
+        "3d render, CGI, unrealistic, low quality, blurry, distorted, "
+        "deformed, bad anatomy, extra limbs, duplicate objects, "
+        "text, watermark"
+    ),
+
+    "pro": (
+        "cartoon, anime, illustration, drawing, painting, sketch, "
+        "3d render, CGI, unrealistic, low quality, blurry, distorted, "
+        "deformed, bad anatomy, extra limbs, duplicate objects, "
+        "text, watermark"
+    ),
+
+    "artistic": (
+        "low quality, blurry, distorted, deformed, bad anatomy, "
+        "extra limbs, duplicate objects, text, watermark"
+    ),
+
+    "anime": (
+        "photorealistic, realistic photography, 3d render, CGI, "
+        "low quality, blurry, distorted, deformed, bad anatomy, "
+        "extra limbs, duplicate objects, text, watermark"
+    ),
+}
+
+PRESETS = {
+    "fast": "sdxl_fast.json",
+    "photorealistic": "sdxl_photorealistic.json",
+    "pro": "sdxl_pro.json",
+    "artistic": "sdxl_artistic.json",
+    "anime": "sdxl_anime.json",
+}
 
 # Функция для запроса к Ollama
 async def ask_ollama(prompt: str) -> str:
@@ -37,33 +101,48 @@ async def ask_ollama(prompt: str) -> str:
             return f"Ошибка при обращении к Ollama: {e}"
 
 
-async def generate_image(prompt: str) -> bytes:
-    comfy_url = "http://127.0.0.1:8188"
-    workflow_path = Path(__file__).parent / "sdxl_api.json"
+async def generate_image(prompt: str, preset: str = "fast") -> bytes:
+    if preset not in PRESETS:
+        raise ValueError(f"Неизвестный preset: {preset}")
 
-    # Загружаем наш workflow
+    comfy_url = "http://127.0.0.1:8188"
+
+    workflow_path = Path(__file__).parent / PRESETS[preset]
+
+    # Загружаем нужный JSON workflow
     with open(workflow_path, "r", encoding="utf-8") as f:
         workflow = json.load(f)
 
-    # Positive prompt
-    workflow["73"]["inputs"]["text_g"] = prompt
-    workflow["73"]["inputs"]["text_l"] = prompt
+    # Добавляем специальный стиль
+    style_prompt = STYLE_PROMPTS[preset]
 
-    # Negative prompt
-    negative_prompt = (
-        "low quality, blurry, distorted, deformed, bad anatomy, "
-        "extra wheels, extra limbs, text, watermark"
-    )
+    if style_prompt:
+        final_prompt = f"{prompt}, {style_prompt}"
+    else:
+        final_prompt = prompt
+
+    # -------------------------------------------------
+    # ВАЖНО:
+    # 73 = Positive CLIP
+    # 74 = Negative CLIP
+    # 76 = первый KSampler
+    # -------------------------------------------------
+
+    workflow["73"]["inputs"]["text_g"] = final_prompt
+    workflow["73"]["inputs"]["text_l"] = final_prompt
+
+    negative_prompt = NEGATIVE_PROMPTS[preset]
 
     workflow["74"]["inputs"]["text_g"] = negative_prompt
     workflow["74"]["inputs"]["text_l"] = negative_prompt
 
-    # Случайный seed, чтобы каждый раз получать другой результат
-    workflow["76"]["inputs"]["seed"] = random.randint(0, 2**63 - 1)
+    # Случайный seed
+    seed = random.randint(0, 2**63 - 1)
 
-    # На всякий случай сохраняем 1024x1024
-    workflow["75"]["inputs"]["width"] = 1024
-    workflow["75"]["inputs"]["height"] = 1024
+    workflow["76"]["inputs"]["seed"] = seed
+
+    if preset == "pro":
+        workflow["84"]["inputs"]["seed"] = seed
 
     async with httpx.AsyncClient(timeout=None) as client:
 
@@ -72,12 +151,16 @@ async def generate_image(prompt: str) -> bytes:
             f"{comfy_url}/prompt",
             json={"prompt": workflow}
         )
+
         response.raise_for_status()
 
         data = response.json()
         prompt_id = data["prompt_id"]
 
-        print(f"ComfyUI: задача запущена: {prompt_id}")
+        print(
+            f"ComfyUI: запущена генерация "
+            f"preset={preset}, id={prompt_id}"
+        )
 
         # Ждём окончания генерации
         while True:
@@ -86,6 +169,7 @@ async def generate_image(prompt: str) -> bytes:
             response = await client.get(
                 f"{comfy_url}/history/{prompt_id}"
             )
+
             response.raise_for_status()
 
             history = response.json()
@@ -95,36 +179,39 @@ async def generate_image(prompt: str) -> bytes:
 
             result = history[prompt_id]
 
-            # Проверяем ошибку выполнения
-            if result.get("status", {}).get("status_str") == "error":
+            status = result.get("status", {})
+
+            if status.get("status_str") == "error":
                 raise RuntimeError(
                     f"ComfyUI вернул ошибку: {result}"
                 )
 
-            # Ищем сохранённое изображение
             outputs = result.get("outputs", {})
 
             for node_output in outputs.values():
+
                 images = node_output.get("images", [])
 
                 for image_info in images:
+
                     filename = image_info["filename"]
                     subfolder = image_info.get("subfolder", "")
                     folder_type = image_info.get("type", "output")
 
-                    # Получаем PNG через API ComfyUI
                     image_response = await client.get(
                         f"{comfy_url}/view",
                         params={
                             "filename": filename,
                             "subfolder": subfolder,
-                            "type": folder_type
-                        }
+                            "type": folder_type,
+                        },
                     )
 
                     image_response.raise_for_status()
 
-                    print(f"ComfyUI: изображение готово: {filename}")
+                    print(
+                        f"ComfyUI: изображение готово: {filename}"
+                    )
 
                     return image_response.content
 
@@ -133,60 +220,68 @@ async def generate_image(prompt: str) -> bytes:
 async def cmd_start(message: types.Message):
     await message.answer("Дарова епта, я нейронка легенды доты и всего мира Артемия, напиши что я умею и ты охуеешь :0")
 
-
-# Обработчик любых текстовых сообщений
 @dp.message()
 async def handle_message(message: types.Message):
-    text = message.text or ""
-
-    # Генерация изображения через ComfyUI
-    if text.startswith("/gen"):
-        prompt = text[4:].strip()
-
-        if not prompt:
-            await message.answer(
-                "Напиши промпт после /gen\n\n"
-                "Например:\n"
-                "/gen чёрный Nissan Laurel C35 на японской заправке ночью"
-            )
-            return
-
-        await bot.send_chat_action(
-            chat_id=message.chat.id,
-            action="upload_photo"
-        )
-
-        try:
-            await message.answer("Генерирую изображение...")
-
-            image_bytes = await generate_image(prompt)
-
-            await message.answer_photo(
-                types.BufferedInputFile(
-                    image_bytes,
-                    filename="generated.png"
-                )
-            )
-
-        except Exception as e:
-            print(f"Ошибка ComfyUI: {e}")
-
-            await message.answer(
-                f"Ошибка при генерации изображения:\n{e}"
-            )
-
-        return
-
-    # Обычный текст → Qwen
     await bot.send_chat_action(
         chat_id=message.chat.id,
         action="typing"
     )
 
-    ai_response = await ask_ollama(text)
+    text = message.text.strip()
 
-    await message.answer(ai_response)
+    if text.startswith("/genpro "):
+        preset = "pro"
+        prompt = text[len("/genpro "):].strip()
 
+    elif text.startswith("/genhd "):
+        preset = "photorealistic"
+        prompt = text[len("/genhd "):].strip()
+
+    elif text.startswith("/genart "):
+        preset = "artistic"
+        prompt = text[len("/genart "):].strip()
+
+    elif text.startswith("/genanime "):
+        preset = "anime"
+        prompt = text[len("/genanime "):].strip()
+
+    elif text.startswith("/gen "):
+        preset = "fast"
+        prompt = text[len("/gen "):].strip()
+
+    else:
+        ai_response = await ask_ollama(message.text)
+        await message.answer(ai_response)
+        return
+
+    if not prompt:
+        await message.answer(
+            "Напиши prompt после команды.\n"
+            "Например: /gen черный Nissan Laurel C35 ночью"
+        )
+        return
+
+    try:
+        image_bytes = await generate_image(
+            prompt=prompt,
+            preset=preset
+        )
+
+        await message.answer_photo(
+            types.BufferedInputFile(
+                image_bytes,
+                filename="generated.png"
+            )
+        )
+
+    except Exception as e:
+        print(f"Ошибка генерации: {e}")
+
+        await message.answer(
+            f"Ошибка при генерации изображения:\n{e}"
+        )
+
+# Обработчик любых текстовых сообщений
 async def main():
     print("Бот запущен и готов к работе с Ollama!")
     await bot.delete_webhook(drop_pending_updates=True)

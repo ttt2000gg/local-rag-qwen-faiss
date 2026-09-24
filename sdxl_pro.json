@@ -16,8 +16,8 @@
       "crop_h": 0,
       "target_width": 1024,
       "target_height": 1024,
-      "text_g": "a realistic black Nissan Laurel C35 Club S, Japanese car, parked at a Japanese gas station at night, wet asphalt, cinematic photography, realistic lighting, highly detailed",
-      "text_l": "a realistic black Nissan Laurel C35 Club S, Japanese car, parked at a Japanese gas station at night, wet asphalt, cinematic photography, realistic lighting, highly detailed",
+      "text_g": "big black cat",
+      "text_l": "big black cat",
       "clip": [
         "72",
         1
@@ -36,8 +36,8 @@
       "crop_h": 0,
       "target_width": 1024,
       "target_height": 1024,
-      "text_g": "low quality, blurry, distorted, deformed, bad anatomy, extra wheels, extra limbs, text, watermark",
-      "text_l": "low quality, blurry, distorted, deformed, bad anatomy, extra wheels, extra limbs, text, watermark",
+      "text_g": "cartoon, anime, illustration, drawing, painting, sketch, 3d render, CGI, unrealistic, low quality, blurry, distorted, deformed, bad anatomy, extra limbs, duplicate objects, text, watermark",
+      "text_l": "cartoon, anime, illustration, drawing, painting, sketch, 3d render, CGI, unrealistic, low quality, blurry, distorted, deformed, bad anatomy, extra limbs, duplicate objects, text, watermark",
       "clip": [
         "72",
         1
@@ -61,11 +61,11 @@
   },
   "76": {
     "inputs": {
-      "seed": 234892463545216,
-      "steps": 20,
+      "seed": 441141792155192,
+      "steps": 45,
       "cfg": 7,
-      "sampler_name": "euler",
-      "scheduler": "normal",
+      "sampler_name": "dpmpp_2m_sde",
+      "scheduler": "karras",
       "denoise": 1,
       "model": [
         "72",
@@ -92,7 +92,7 @@
   "77": {
     "inputs": {
       "samples": [
-        "76",
+        "84",
         0
       ],
       "vae": [
@@ -105,7 +105,51 @@
       "title": "Декодировать VAE"
     }
   },
-  "79": {
+  "82": {
+    "inputs": {
+      "upscale_method": "nearest-exact",
+      "scale_by": 1.5,
+      "samples": [
+        "76",
+        0
+      ]
+    },
+    "class_type": "LatentUpscaleBy",
+    "_meta": {
+      "title": "Увеличить латент на"
+    }
+  },
+  "84": {
+    "inputs": {
+      "seed": 311208273673388,
+      "steps": 20,
+      "cfg": 6,
+      "sampler_name": "dpmpp_2m_sde",
+      "scheduler": "karras",
+      "denoise": 0.35,
+      "model": [
+        "72",
+        0
+      ],
+      "positive": [
+        "73",
+        0
+      ],
+      "negative": [
+        "74",
+        0
+      ],
+      "latent_image": [
+        "82",
+        0
+      ]
+    },
+    "class_type": "KSampler",
+    "_meta": {
+      "title": "KSampler"
+    }
+  },
+  "85": {
     "inputs": {
       "filename_prefix": "ComfyUI",
       "images": [
