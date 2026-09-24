@@ -7,6 +7,7 @@ import random
 from pathlib import Path
 import os
 from dotenv import load_dotenv
+from aiogram.types import BotCommand
 
 load_dotenv()
 
@@ -281,10 +282,23 @@ async def handle_message(message: types.Message):
             f"Ошибка при генерации изображения:\n{e}"
         )
 
+async def set_commands():
+    commands = [
+        BotCommand(command="start", description="Запустить бота"),
+        BotCommand(command="gen", description="Быстрая генерация изображения"),
+        BotCommand(command="genhd", description="Фотореалистичное изображение"),
+        BotCommand(command="genpro", description="PRO генерация 1536×1536"),
+        BotCommand(command="genart", description="Художественная генерация"),
+        BotCommand(command="genanime", description="Генерация в стиле аниме"),
+    ]
+
+    await bot.set_my_commands(commands)
+
 # Обработчик любых текстовых сообщений
 async def main():
     print("Бот запущен и готов к работе с Ollama!")
     await bot.delete_webhook(drop_pending_updates=True)
+    await set_commands()
     await dp.start_polling(bot)
 
 

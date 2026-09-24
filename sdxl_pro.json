@@ -107,7 +107,7 @@
   },
   "82": {
     "inputs": {
-      "upscale_method": "nearest-exact",
+      "upscale_method": "bicubic",
       "scale_by": 1.5,
       "samples": [
         "76",
@@ -123,10 +123,10 @@
     "inputs": {
       "seed": 311208273673388,
       "steps": 20,
-      "cfg": 6,
+      "cfg": 5.5,
       "sampler_name": "dpmpp_2m_sde",
       "scheduler": "karras",
-      "denoise": 0.35,
+      "denoise": 0.3,
       "model": [
         "72",
         0
