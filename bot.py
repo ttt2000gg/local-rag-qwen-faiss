@@ -8,6 +8,8 @@ from pathlib import Path
 import os
 from dotenv import load_dotenv
 from aiogram.types import BotCommand
+import argostranslate.translate
+
 
 load_dotenv()
 
@@ -17,6 +19,7 @@ MODEL_NAME = "artemiy-ai:latest"
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
+
 
 STYLE_PROMPTS = {
     "fast": "",
@@ -42,6 +45,7 @@ STYLE_PROMPTS = {
         "cinematic composition"
     ),
 }
+
 
 NEGATIVE_PROMPTS = {
     "fast": (
@@ -75,6 +79,7 @@ NEGATIVE_PROMPTS = {
     ),
 }
 
+
 PRESETS = {
     "fast": "sdxl_fast.json",
     "photorealistic": "sdxl_photorealistic.json",
@@ -83,26 +88,72 @@ PRESETS = {
     "anime": "sdxl_anime.json",
 }
 
-# Функция для запроса к Ollama
+
+# ============================================================
+# OLLAMA
+# Используется для обычных сообщений боту
+# ============================================================
+
 async def ask_ollama(prompt: str) -> str:
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
-        "stream": False  # Отключаем потоковый ответ, чтобы получить сразу весь текст
+        "stream": False
     }
-    
-    # Таймаут увеличен, так как генерация текста локальной нейросетью занимает время
+
     async with httpx.AsyncClient(timeout=120.0) as client:
         try:
-            response = await client.post(OLLAMA_URL, json=payload)
+            response = await client.post(
+                OLLAMA_URL,
+                json=payload
+            )
+
             response.raise_for_status()
+
             data = response.json()
-            return data.get("response", "Не удалось получить ответ от нейросети.")
+
+            return data.get(
+                "response",
+                "Не удалось получить ответ от нейросети."
+            )
+
         except Exception as e:
             return f"Ошибка при обращении к Ollama: {e}"
 
 
-async def generate_image(prompt: str, preset: str = "fast") -> bytes:
+# ============================================================
+# ARGOS TRANSLATE
+# Русский -> Английский
+# Используется ТОЛЬКО для промптов изображений
+# ============================================================
+
+def translate_prompt(prompt: str) -> str:
+    try:
+        translated = argostranslate.translate.translate(
+            prompt,
+            "ru",
+            "en"
+        )
+
+        return translated.strip()
+
+    except Exception as e:
+        print(f"Ошибка перевода Argos: {e}")
+
+        # Если переводчик сломался,
+        # отправляем оригинальный prompt
+        return prompt
+
+
+# ============================================================
+# COMFYUI IMAGE GENERATION
+# ============================================================
+
+async def generate_image(
+    prompt: str,
+    preset: str = "fast"
+) -> bytes:
+
     if preset not in PRESETS:
         raise ValueError(f"Неизвестный preset: {preset}")
 
@@ -110,24 +161,39 @@ async def generate_image(prompt: str, preset: str = "fast") -> bytes:
 
     workflow_path = Path(__file__).parent / PRESETS[preset]
 
-    # Загружаем нужный JSON workflow
+    # Загружаем workflow
     with open(workflow_path, "r", encoding="utf-8") as f:
         workflow = json.load(f)
 
-    # Добавляем специальный стиль
+    # ---------------------------------------------------------
+    # Переводим русский prompt через Argos
+    # ---------------------------------------------------------
+
+    translated_prompt = translate_prompt(prompt)
+
+    print(f"Оригинальный prompt: {prompt}")
+    print(f"Переведённый prompt: {translated_prompt}")
+
+    # ---------------------------------------------------------
+    # Добавляем стиль
+    # ---------------------------------------------------------
+
     style_prompt = STYLE_PROMPTS[preset]
 
     if style_prompt:
-        final_prompt = f"{prompt}, {style_prompt}"
+        final_prompt = f"{translated_prompt}, {style_prompt}"
     else:
-        final_prompt = prompt
+        final_prompt = translated_prompt
 
-    # -------------------------------------------------
+    print(f"Итоговый prompt: {final_prompt}")
+
+    # ---------------------------------------------------------
     # ВАЖНО:
+    #
     # 73 = Positive CLIP
     # 74 = Negative CLIP
     # 76 = первый KSampler
-    # -------------------------------------------------
+    # ---------------------------------------------------------
 
     workflow["73"]["inputs"]["text_g"] = final_prompt
     workflow["73"]["inputs"]["text_l"] = final_prompt
@@ -137,7 +203,10 @@ async def generate_image(prompt: str, preset: str = "fast") -> bytes:
     workflow["74"]["inputs"]["text_g"] = negative_prompt
     workflow["74"]["inputs"]["text_l"] = negative_prompt
 
+    # ---------------------------------------------------------
     # Случайный seed
+    # ---------------------------------------------------------
+
     seed = random.randint(0, 2**63 - 1)
 
     workflow["76"]["inputs"]["seed"] = seed
@@ -145,9 +214,12 @@ async def generate_image(prompt: str, preset: str = "fast") -> bytes:
     if preset == "pro":
         workflow["84"]["inputs"]["seed"] = seed
 
+    # ---------------------------------------------------------
+    # Отправляем workflow в ComfyUI
+    # ---------------------------------------------------------
+
     async with httpx.AsyncClient(timeout=None) as client:
 
-        # Отправляем workflow в ComfyUI
         response = await client.post(
             f"{comfy_url}/prompt",
             json={"prompt": workflow}
@@ -156,6 +228,7 @@ async def generate_image(prompt: str, preset: str = "fast") -> bytes:
         response.raise_for_status()
 
         data = response.json()
+
         prompt_id = data["prompt_id"]
 
         print(
@@ -163,8 +236,12 @@ async def generate_image(prompt: str, preset: str = "fast") -> bytes:
             f"preset={preset}, id={prompt_id}"
         )
 
+        # -----------------------------------------------------
         # Ждём окончания генерации
+        # -----------------------------------------------------
+
         while True:
+
             await asyncio.sleep(1)
 
             response = await client.get(
@@ -197,7 +274,10 @@ async def generate_image(prompt: str, preset: str = "fast") -> bytes:
 
                     filename = image_info["filename"]
                     subfolder = image_info.get("subfolder", "")
-                    folder_type = image_info.get("type", "output")
+                    folder_type = image_info.get(
+                        "type",
+                        "output"
+                    )
 
                     image_response = await client.get(
                         f"{comfy_url}/view",
@@ -216,13 +296,27 @@ async def generate_image(prompt: str, preset: str = "fast") -> bytes:
 
                     return image_response.content
 
-# Обработчик команды /start
+
+# ============================================================
+# /start
+# ============================================================
+
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message):
-    await message.answer("Дарова епта, я нейронка легенды доты и всего мира Артемия, напиши что я умею и ты охуеешь :0")
+
+    await message.answer(
+        "Дарова епта, я нейронка легенды доты и всего мира "
+        "Артемия, напиши что я умею и ты охуеешь :0"
+    )
+
+
+# ============================================================
+# ОБРАБОТКА СООБЩЕНИЙ
+# ============================================================
 
 @dp.message()
 async def handle_message(message: types.Message):
+
     await bot.send_chat_action(
         chat_id=message.chat.id,
         action="typing"
@@ -230,39 +324,83 @@ async def handle_message(message: types.Message):
 
     text = message.text.strip()
 
+    # ---------------------------------------------------------
+    # /genpro
+    # ---------------------------------------------------------
+
     if text.startswith("/genpro "):
+
         preset = "pro"
         prompt = text[len("/genpro "):].strip()
 
+    # ---------------------------------------------------------
+    # /genhd
+    # ---------------------------------------------------------
+
     elif text.startswith("/genhd "):
+
         preset = "photorealistic"
         prompt = text[len("/genhd "):].strip()
 
+    # ---------------------------------------------------------
+    # /genart
+    # ---------------------------------------------------------
+
     elif text.startswith("/genart "):
+
         preset = "artistic"
         prompt = text[len("/genart "):].strip()
 
+    # ---------------------------------------------------------
+    # /genanime
+    # ---------------------------------------------------------
+
     elif text.startswith("/genanime "):
+
         preset = "anime"
         prompt = text[len("/genanime "):].strip()
 
+    # ---------------------------------------------------------
+    # /gen
+    # ---------------------------------------------------------
+
     elif text.startswith("/gen "):
+
         preset = "fast"
         prompt = text[len("/gen "):].strip()
 
+    # ---------------------------------------------------------
+    # Обычное сообщение
+    # → отправляем в Ollama
+    # ---------------------------------------------------------
+
     else:
+
         ai_response = await ask_ollama(message.text)
+
         await message.answer(ai_response)
+
         return
 
+    # ---------------------------------------------------------
+    # Проверяем prompt
+    # ---------------------------------------------------------
+
     if not prompt:
+
         await message.answer(
             "Напиши prompt после команды.\n"
             "Например: /gen черный Nissan Laurel C35 ночью"
         )
+
         return
 
+    # ---------------------------------------------------------
+    # Генерация
+    # ---------------------------------------------------------
+
     try:
+
         image_bytes = await generate_image(
             prompt=prompt,
             preset=preset
@@ -276,29 +414,70 @@ async def handle_message(message: types.Message):
         )
 
     except Exception as e:
+
         print(f"Ошибка генерации: {e}")
 
         await message.answer(
             f"Ошибка при генерации изображения:\n{e}"
         )
 
+
+# ============================================================
+# TELEGRAM COMMANDS
+# ============================================================
+
 async def set_commands():
+
     commands = [
-        BotCommand(command="start", description="Запустить бота"),
-        BotCommand(command="gen", description="Быстрая генерация изображения"),
-        BotCommand(command="genhd", description="Фотореалистичное изображение"),
-        BotCommand(command="genpro", description="PRO генерация 1536×1536"),
-        BotCommand(command="genart", description="Художественная генерация"),
-        BotCommand(command="genanime", description="Генерация в стиле аниме"),
+
+        BotCommand(
+            command="start",
+            description="Запустить бота"
+        ),
+
+        BotCommand(
+            command="gen",
+            description="Быстрая генерация изображения"
+        ),
+
+        BotCommand(
+            command="genhd",
+            description="Фотореалистичное изображение"
+        ),
+
+        BotCommand(
+            command="genpro",
+            description="PRO генерация 1536×1536"
+        ),
+
+        BotCommand(
+            command="genart",
+            description="Художественная генерация"
+        ),
+
+        BotCommand(
+            command="genanime",
+            description="Генерация в стиле аниме"
+        ),
     ]
 
     await bot.set_my_commands(commands)
 
-# Обработчик любых текстовых сообщений
+
+# ============================================================
+# MAIN
+# ============================================================
+
 async def main():
-    print("Бот запущен и готов к работе с Ollama!")
-    await bot.delete_webhook(drop_pending_updates=True)
+
+    print("Бот запущен и готов к работе!")
+
+    await bot.delete_webhook(
+        drop_pending_updates=True
+    )
+
     await set_commands()
+
     await dp.start_polling(bot)
 
 
