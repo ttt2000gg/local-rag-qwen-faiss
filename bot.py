@@ -44,6 +44,9 @@ STYLE_PROMPTS = {
         "expressive character design, clean lineart, detailed background, "
         "cinematic composition"
     ),
+    "pony": (
+        "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up"
+    ),
 }
 
 
@@ -77,8 +80,8 @@ NEGATIVE_PROMPTS = {
         "low quality, blurry, distorted, deformed, bad anatomy, "
         "extra limbs, duplicate objects, text, watermark"
     ),
+    "pony": "",
 }
-
 
 PRESETS = {
     "fast": "sdxl_fast.json",
@@ -86,8 +89,8 @@ PRESETS = {
     "pro": "sdxl_pro.json",
     "artistic": "sdxl_artistic.json",
     "anime": "sdxl_anime.json",
+    "pony": "sdxl_pony.json",
 }
-
 
 # ============================================================
 # OLLAMA
@@ -325,10 +328,19 @@ async def handle_message(message: types.Message):
     text = message.text.strip()
 
     # ---------------------------------------------------------
+    # /genpony
+    # ---------------------------------------------------------
+
+    if text.startswith("/genpony "):
+
+        preset = "pony"
+        prompt = text[len("/genpony "):].strip()
+
+    # ---------------------------------------------------------
     # /genpro
     # ---------------------------------------------------------
 
-    if text.startswith("/genpro "):
+    elif text.startswith("/genpro "):
 
         preset = "pro"
         prompt = text[len("/genpro "):].strip()
@@ -443,6 +455,11 @@ async def set_commands():
         BotCommand(
             command="genhd",
             description="Фотореалистичное изображение"
+        ),
+
+        BotCommand(
+            command="genpony",
+            description="Генерация Pony V6 XL"
         ),
 
         BotCommand(
