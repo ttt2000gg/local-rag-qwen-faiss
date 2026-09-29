@@ -133,7 +133,7 @@
   },
   "84": {
     "inputs": {
-      "lora_name": "90s_anime_aesthetic_krea2_3348255_epoch_10.safetensors",
+      "lora_name": "Windrunnerv0.2.safetensors",
       "strength_model": 1,
       "strength_clip": 1,
       "model": [

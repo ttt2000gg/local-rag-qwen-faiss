@@ -6,6 +6,7 @@ import json
 import random
 from pathlib import Path
 import os
+import re
 from datetime import datetime
 from dotenv import load_dotenv
 from aiogram.types import BotCommand
@@ -66,10 +67,15 @@ STYLE_PROMPTS = {
         "masterpiece, best quality, highly detailed, detailed eyes, "
         "beautiful face, detailed background"
     ),
-    
+
     "lora1": (
         "masterpiece, best quality, highly detailed, detailed eyes, "
         "beautiful face, detailed background"
+    ),
+    
+    "lora2": (
+        "masterpiece, best quality, highly detailed, "
+        "detailed eyes, beautiful face, detailed background"
     ),
 }
 
@@ -116,9 +122,15 @@ NEGATIVE_PROMPTS = {
     ),
 
     "lora1": (
-    "worst quality, low quality, lowres, blurry, "
-    "bad anatomy, bad hands, extra fingers, extra limbs, "
-    "duplicate, text, watermark, signature"
+        "worst quality, low quality, lowres, blurry, "
+        "bad anatomy, bad hands, extra fingers, extra limbs, "
+        "duplicate, text, watermark, signature"
+    ),
+
+    "lora2": (
+        "worst quality, low quality, lowres, blurry, "
+        "bad anatomy, bad hands, extra fingers, extra limbs, "
+        "duplicate, text, watermark, signature"
     ),
 }
 
@@ -135,7 +147,8 @@ PRESETS = {
     "anime": "sdxl_anime.json",
     "il": "sdxl_il.json",
     "lora1": "sdxl_lora1.json",
-    }
+    "lora2": "sdxl_lora2.json",
+}
 
 
 # ============================================================
@@ -261,10 +274,17 @@ def translate_prompt(prompt: str) -> str:
 
 async def generate_image(
     prompt: str,
-    preset: str = "fast"
+    preset: str = "fast",
+    seed: int | None = None
 ):
     """
     Генерирует изображение через ComfyUI.
+
+    Если seed не указан:
+        генерируется случайный seed.
+
+    Если seed указан:
+        используется именно он.
 
     Возвращает:
 
@@ -367,19 +387,27 @@ async def generate_image(
     )
 
     # ---------------------------------------------------------
-    # Random seed
+    # SEED
     # ---------------------------------------------------------
 
-    seed = random.randint(
-        0,
-        2**63 - 1
-    )
+    if seed is None:
+
+        seed = random.randint(
+            0,
+            2**63 - 1
+        )
+
+        print(
+            f"Seed не указан, случайный seed: {seed}"
+        )
+
+    else:
+
+        print(
+            f"Используется ручной seed: {seed}"
+        )
 
     workflow["76"]["inputs"]["seed"] = seed
-
-    print(
-        f"Seed: {seed}"
-    )
 
     # ---------------------------------------------------------
     # PRO может иметь дополнительный KSampler
@@ -387,9 +415,7 @@ async def generate_image(
 
     if preset == "pro":
 
-        workflow["84"]["inputs"]["seed"] = (
-            seed
-        )
+        workflow["84"]["inputs"]["seed"] = seed
 
     # ---------------------------------------------------------
     # Отправляем workflow в ComfyUI
@@ -571,7 +597,7 @@ async def handle_message(
     text = message.text.strip()
 
     # ---------------------------------------------------------
-    # /lora1
+    # Определяем команду и preset
     # ---------------------------------------------------------
 
     if text.startswith("/lora1 "):
@@ -582,11 +608,13 @@ async def handle_message(
             len("/lora1 "):
         ].strip()
 
-    # -----------
+    elif text.startswith("/lora2 "):
 
-    # ---------------------------------------------------------
-    # /genil
-    # ---------------------------------------------------------
+        preset = "lora2"
+
+        prompt = text[
+            len("/lora2 "):
+        ].strip()
 
     elif text.startswith("/genil "):
 
@@ -596,10 +624,6 @@ async def handle_message(
             len("/genil "):
         ].strip()
 
-    # ---------------------------------------------------------
-    # /genpro
-    # ---------------------------------------------------------
-
     elif text.startswith("/genpro "):
 
         preset = "pro"
@@ -607,10 +631,6 @@ async def handle_message(
         prompt = text[
             len("/genpro "):
         ].strip()
-
-    # ---------------------------------------------------------
-    # /genhd
-    # ---------------------------------------------------------
 
     elif text.startswith("/genhd "):
 
@@ -620,10 +640,6 @@ async def handle_message(
             len("/genhd "):
         ].strip()
 
-    # ---------------------------------------------------------
-    # /genart
-    # ---------------------------------------------------------
-
     elif text.startswith("/genart "):
 
         preset = "artistic"
@@ -631,10 +647,6 @@ async def handle_message(
         prompt = text[
             len("/genart "):
         ].strip()
-
-    # ---------------------------------------------------------
-    # /genanime
-    # ---------------------------------------------------------
 
     elif text.startswith("/genanime "):
 
@@ -644,10 +656,6 @@ async def handle_message(
             len("/genanime "):
         ].strip()
 
-    # ---------------------------------------------------------
-    # /gen
-    # ---------------------------------------------------------
-
     elif text.startswith("/gen "):
 
         preset = "fast"
@@ -655,10 +663,6 @@ async def handle_message(
         prompt = text[
             len("/gen "):
         ].strip()
-
-    # ---------------------------------------------------------
-    # Обычное сообщение
-    # ---------------------------------------------------------
 
     else:
 
@@ -673,15 +677,72 @@ async def handle_message(
         return
 
     # ---------------------------------------------------------
+    # Извлекаем --seed из конца prompt
+    #
+    # Пример:
+    #
+    # /genil красивая девушка --seed 123456
+    #
+    # prompt:
+    #   красивая девушка
+    #
+    # seed:
+    #   123456
+    # ---------------------------------------------------------
+
+    seed = None
+
+    seed_match = re.search(
+        r"\s+--seed\s+(\d+)\s*$",
+        prompt,
+        re.IGNORECASE
+    )
+
+    if seed_match:
+
+        seed = int(
+            seed_match.group(1)
+        )
+
+        # Убираем --seed XXXXX из prompt
+        prompt = prompt[
+            :seed_match.start()
+        ].strip()
+
+        print(
+            f"Найден ручной seed: {seed}"
+        )
+
+    # ---------------------------------------------------------
+    # Проверяем seed
+    # ---------------------------------------------------------
+
+    if seed is not None:
+
+        if seed < 0 or seed > 2**63 - 1:
+
+            await message.answer(
+                "❌ Seed должен быть числом "
+                "от 0 до 9223372036854775807."
+            )
+
+            return
+
+    # ---------------------------------------------------------
     # Проверяем prompt
     # ---------------------------------------------------------
 
     if not prompt:
 
         await message.answer(
-            "Напиши prompt после команды.\n"
-            "Например: /genil красивая девушка "
-            "с длинными белыми волосами"
+            "Напиши prompt после команды.\n\n"
+            "Пример:\n"
+            "/genil красивая девушка "
+            "с длинными белыми волосами\n\n"
+            "С ручным seed:\n"
+            "/genil красивая девушка "
+            "с длинными белыми волосами "
+            "--seed 416407258944610701"
         )
 
         return
@@ -697,7 +758,8 @@ async def handle_message(
         "artistic": "Artistic",
         "anime": "Anime",
         "il": "Illustrious XL",
-        "lora1": "Illustrious XL + 90s Anime LoRA"
+        "lora1": "Illustrious XL + 90s Anime LoRA",
+        "lora2": "Illustrious XL + Windranger"
     }
 
     preset_name = preset_names.get(
@@ -709,9 +771,25 @@ async def handle_message(
     # Отправляем сообщение о начале генерации
     # ---------------------------------------------------------
 
+    if seed is not None:
+
+        status_text = (
+            "🎨 Генерирую изображение...\n\n"
+            f"Preset: {preset_name}\n"
+            f"Seed: `{seed}`"
+        )
+
+    else:
+
+        status_text = (
+            "🎨 Генерирую изображение...\n\n"
+            f"Preset: {preset_name}\n"
+            "Seed: случайный"
+        )
+
     status_message = await message.answer(
-        "🎨 Генерирую изображение...\n\n"
-        f"Preset: {preset_name}"
+        status_text,
+        parse_mode="Markdown"
     )
 
     # ---------------------------------------------------------
@@ -728,7 +806,8 @@ async def handle_message(
             prompt_id
         ) = await generate_image(
             prompt=prompt,
-            preset=preset
+            preset=preset,
+            seed=seed
         )
 
         # -----------------------------------------------------
@@ -750,8 +829,7 @@ async def handle_message(
             types.BufferedInputFile(
                 image_bytes,
                 filename="generated.png"
-            ),
-            parse_mode="Markdown"
+            )
         )
 
     except Exception as e:
@@ -825,6 +903,11 @@ async def set_commands():
         BotCommand(
             command="lora1",
             description="Illustrious XL + 90s Anime LoRA"
+        ),
+   
+        BotCommand(
+            command="lora2",
+            description="Illustrious XL + Windranger"
         ),
     ]
 
