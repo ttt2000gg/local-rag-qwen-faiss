@@ -66,6 +66,11 @@ STYLE_PROMPTS = {
         "masterpiece, best quality, highly detailed, detailed eyes, "
         "beautiful face, detailed background"
     ),
+    
+    "lora1": (
+        "masterpiece, best quality, highly detailed, detailed eyes, "
+        "beautiful face, detailed background"
+    ),
 }
 
 
@@ -109,6 +114,12 @@ NEGATIVE_PROMPTS = {
         "bad anatomy, bad hands, extra fingers, extra limbs, "
         "duplicate, text, watermark, signature"
     ),
+
+    "lora1": (
+    "worst quality, low quality, lowres, blurry, "
+    "bad anatomy, bad hands, extra fingers, extra limbs, "
+    "duplicate, text, watermark, signature"
+    ),
 }
 
 
@@ -123,7 +134,8 @@ PRESETS = {
     "artistic": "sdxl_artistic.json",
     "anime": "sdxl_anime.json",
     "il": "sdxl_il.json",
-}
+    "lora1": "sdxl_lora1.json",
+    }
 
 
 # ============================================================
@@ -559,10 +571,24 @@ async def handle_message(
     text = message.text.strip()
 
     # ---------------------------------------------------------
+    # /lora1
+    # ---------------------------------------------------------
+
+    if text.startswith("/lora1 "):
+
+        preset = "lora1"
+
+        prompt = text[
+            len("/lora1 "):
+        ].strip()
+
+    # -----------
+
+    # ---------------------------------------------------------
     # /genil
     # ---------------------------------------------------------
 
-    if text.startswith("/genil "):
+    elif text.startswith("/genil "):
 
         preset = "il"
 
@@ -670,7 +696,8 @@ async def handle_message(
         "pro": "PRO",
         "artistic": "Artistic",
         "anime": "Anime",
-        "il": "Illustrious XL"
+        "il": "Illustrious XL",
+        "lora1": "Illustrious XL + 90s Anime LoRA"
     }
 
     preset_name = preset_names.get(
@@ -793,6 +820,11 @@ async def set_commands():
         BotCommand(
             command="genanime",
             description="Генерация в стиле аниме"
+        ),
+
+        BotCommand(
+            command="lora1",
+            description="Illustrious XL + 90s Anime LoRA"
         ),
     ]
 
