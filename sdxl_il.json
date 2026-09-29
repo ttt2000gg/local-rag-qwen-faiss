@@ -1,7 +1,7 @@
 {
   "72": {
     "inputs": {
-      "ckpt_name": "ponyDiffusionV6XL_v6StartWithThis.safetensors"
+      "ckpt_name": "Illustrious-XL-v2.0.safetensors"
     },
     "class_type": "CheckpointLoaderSimple",
     "_meta": {
@@ -16,8 +16,8 @@
       "crop_h": 0,
       "target_width": 1024,
       "target_height": 1024,
-      "text_g": "",
-      "text_l": "",
+      "text_g": "masterpiece, best quality, 1girl, beautiful face, detailed eyes,\nlong white hair, looking at viewer, dark fantasy, cinematic lighting,\ndetailed background",
+      "text_l": "masterpiece, best quality, 1girl, beautiful face, detailed eyes,\nlong white hair, looking at viewer, dark fantasy, cinematic lighting,\ndetailed background",
       "clip": [
         "82",
         0
@@ -36,8 +36,8 @@
       "crop_h": 0,
       "target_width": 1024,
       "target_height": 1024,
-      "text_g": "",
-      "text_l": "",
+      "text_g": "worst quality, low quality, lowres, bad anatomy, bad hands,\ntext, watermark, signature",
+      "text_l": "worst quality, low quality, lowres, bad anatomy, bad hands,\ntext, watermark, signature",
       "clip": [
         "82",
         0
@@ -61,10 +61,10 @@
   },
   "76": {
     "inputs": {
-      "seed": 242988007976989,
-      "steps": 30,
-      "cfg": 8,
-      "sampler_name": "deis",
+      "seed": 735597737135472,
+      "steps": 35,
+      "cfg": 9,
+      "sampler_name": "euler_ancestral",
       "scheduler": "karras",
       "denoise": 1,
       "model": [

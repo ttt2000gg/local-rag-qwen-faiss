@@ -6,6 +6,7 @@ import json
 import random
 from pathlib import Path
 import os
+from datetime import datetime
 from dotenv import load_dotenv
 from aiogram.types import BotCommand
 import argostranslate.translate
@@ -20,6 +21,22 @@ MODEL_NAME = "artemiy-ai:latest"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+
+# ============================================================
+# PATHS / LOGS
+# ============================================================
+
+BASE_DIR = Path(__file__).parent
+
+LOG_DIR = BASE_DIR / "logs"
+LOG_DIR.mkdir(exist_ok=True)
+
+GENERATION_LOG = LOG_DIR / "generations.jsonl"
+
+
+# ============================================================
+# STYLE PROMPTS
+# ============================================================
 
 STYLE_PROMPTS = {
     "fast": "",
@@ -44,11 +61,17 @@ STYLE_PROMPTS = {
         "expressive character design, clean lineart, detailed background, "
         "cinematic composition"
     ),
-    "pony": (
-        "score_9, score_8_up, score_7_up, score_6_up, score_5_up, score_4_up"
+
+    "il": (
+        "masterpiece, best quality, highly detailed, detailed eyes, "
+        "beautiful face, detailed background"
     ),
 }
 
+
+# ============================================================
+# NEGATIVE PROMPTS
+# ============================================================
 
 NEGATIVE_PROMPTS = {
     "fast": (
@@ -80,8 +103,18 @@ NEGATIVE_PROMPTS = {
         "low quality, blurry, distorted, deformed, bad anatomy, "
         "extra limbs, duplicate objects, text, watermark"
     ),
-    "pony": "",
+
+    "il": (
+        "worst quality, low quality, lowres, blurry, "
+        "bad anatomy, bad hands, extra fingers, extra limbs, "
+        "duplicate, text, watermark, signature"
+    ),
 }
+
+
+# ============================================================
+# PRESETS
+# ============================================================
 
 PRESETS = {
     "fast": "sdxl_fast.json",
@@ -89,23 +122,79 @@ PRESETS = {
     "pro": "sdxl_pro.json",
     "artistic": "sdxl_artistic.json",
     "anime": "sdxl_anime.json",
-    "pony": "sdxl_pony.json",
+    "il": "sdxl_il.json",
 }
+
+
+# ============================================================
+# GENERATION LOG
+# ============================================================
+
+def log_generation(
+    preset,
+    seed,
+    prompt,
+    translated_prompt,
+    final_prompt,
+    status,
+    prompt_id=None,
+    error=None
+):
+    """
+    Записывает информацию о генерации
+    в logs/generations.jsonl
+    """
+
+    entry = {
+        "time": datetime.now().isoformat(
+            timespec="seconds"
+        ),
+        "preset": preset,
+        "seed": seed,
+        "prompt": prompt,
+        "translated_prompt": translated_prompt,
+        "final_prompt": final_prompt,
+        "status": status,
+    }
+
+    if prompt_id is not None:
+        entry["prompt_id"] = prompt_id
+
+    if error is not None:
+        entry["error"] = str(error)
+
+    with open(
+        GENERATION_LOG,
+        "a",
+        encoding="utf-8"
+    ) as f:
+
+        f.write(
+            json.dumps(
+                entry,
+                ensure_ascii=False
+            ) + "\n"
+        )
+
 
 # ============================================================
 # OLLAMA
-# Используется для обычных сообщений боту
 # ============================================================
 
 async def ask_ollama(prompt: str) -> str:
+
     payload = {
         "model": MODEL_NAME,
         "prompt": prompt,
         "stream": False
     }
 
-    async with httpx.AsyncClient(timeout=120.0) as client:
+    async with httpx.AsyncClient(
+        timeout=120.0
+    ) as client:
+
         try:
+
             response = await client.post(
                 OLLAMA_URL,
                 json=payload
@@ -121,30 +210,36 @@ async def ask_ollama(prompt: str) -> str:
             )
 
         except Exception as e:
-            return f"Ошибка при обращении к Ollama: {e}"
+
+            return (
+                f"Ошибка при обращении к Ollama: {e}"
+            )
 
 
 # ============================================================
 # ARGOS TRANSLATE
-# Русский -> Английский
-# Используется ТОЛЬКО для промптов изображений
 # ============================================================
 
 def translate_prompt(prompt: str) -> str:
+
     try:
-        translated = argostranslate.translate.translate(
-            prompt,
-            "ru",
-            "en"
+
+        translated = (
+            argostranslate.translate.translate(
+                prompt,
+                "ru",
+                "en"
+            )
         )
 
         return translated.strip()
 
     except Exception as e:
-        print(f"Ошибка перевода Argos: {e}")
 
-        # Если переводчик сломался,
-        # отправляем оригинальный prompt
+        print(
+            f"Ошибка перевода Argos: {e}"
+        )
+
         return prompt
 
 
@@ -155,27 +250,60 @@ def translate_prompt(prompt: str) -> str:
 async def generate_image(
     prompt: str,
     preset: str = "fast"
-) -> bytes:
+):
+    """
+    Генерирует изображение через ComfyUI.
+
+    Возвращает:
+
+        image_bytes
+        seed
+        translated_prompt
+        final_prompt
+        prompt_id
+    """
 
     if preset not in PRESETS:
-        raise ValueError(f"Неизвестный preset: {preset}")
+
+        raise ValueError(
+            f"Неизвестный preset: {preset}"
+        )
 
     comfy_url = "http://127.0.0.1:8188"
 
-    workflow_path = Path(__file__).parent / PRESETS[preset]
+    workflow_path = (
+        BASE_DIR /
+        PRESETS[preset]
+    )
 
+    # ---------------------------------------------------------
     # Загружаем workflow
-    with open(workflow_path, "r", encoding="utf-8") as f:
+    # ---------------------------------------------------------
+
+    with open(
+        workflow_path,
+        "r",
+        encoding="utf-8"
+    ) as f:
+
         workflow = json.load(f)
 
     # ---------------------------------------------------------
-    # Переводим русский prompt через Argos
+    # Перевод prompt
     # ---------------------------------------------------------
 
-    translated_prompt = translate_prompt(prompt)
+    translated_prompt = translate_prompt(
+        prompt
+    )
 
-    print(f"Оригинальный prompt: {prompt}")
-    print(f"Переведённый prompt: {translated_prompt}")
+    print(
+        f"Оригинальный prompt: {prompt}"
+    )
+
+    print(
+        f"Переведённый prompt: "
+        f"{translated_prompt}"
+    )
 
     # ---------------------------------------------------------
     # Добавляем стиль
@@ -184,48 +312,86 @@ async def generate_image(
     style_prompt = STYLE_PROMPTS[preset]
 
     if style_prompt:
-        final_prompt = f"{translated_prompt}, {style_prompt}"
+
+        final_prompt = (
+            f"{translated_prompt}, "
+            f"{style_prompt}"
+        )
+
     else:
+
         final_prompt = translated_prompt
 
-    print(f"Итоговый prompt: {final_prompt}")
+    print(
+        f"Итоговый prompt: {final_prompt}"
+    )
 
     # ---------------------------------------------------------
-    # ВАЖНО:
+    # CLIP
     #
     # 73 = Positive CLIP
     # 74 = Negative CLIP
-    # 76 = первый KSampler
+    # 76 = KSampler
     # ---------------------------------------------------------
 
-    workflow["73"]["inputs"]["text_g"] = final_prompt
-    workflow["73"]["inputs"]["text_l"] = final_prompt
+    workflow["73"]["inputs"]["text_g"] = (
+        final_prompt
+    )
 
-    negative_prompt = NEGATIVE_PROMPTS[preset]
+    workflow["73"]["inputs"]["text_l"] = (
+        final_prompt
+    )
 
-    workflow["74"]["inputs"]["text_g"] = negative_prompt
-    workflow["74"]["inputs"]["text_l"] = negative_prompt
+    negative_prompt = (
+        NEGATIVE_PROMPTS[preset]
+    )
+
+    workflow["74"]["inputs"]["text_g"] = (
+        negative_prompt
+    )
+
+    workflow["74"]["inputs"]["text_l"] = (
+        negative_prompt
+    )
 
     # ---------------------------------------------------------
-    # Случайный seed
+    # Random seed
     # ---------------------------------------------------------
 
-    seed = random.randint(0, 2**63 - 1)
+    seed = random.randint(
+        0,
+        2**63 - 1
+    )
 
     workflow["76"]["inputs"]["seed"] = seed
 
+    print(
+        f"Seed: {seed}"
+    )
+
+    # ---------------------------------------------------------
+    # PRO может иметь дополнительный KSampler
+    # ---------------------------------------------------------
+
     if preset == "pro":
-        workflow["84"]["inputs"]["seed"] = seed
+
+        workflow["84"]["inputs"]["seed"] = (
+            seed
+        )
 
     # ---------------------------------------------------------
     # Отправляем workflow в ComfyUI
     # ---------------------------------------------------------
 
-    async with httpx.AsyncClient(timeout=None) as client:
+    async with httpx.AsyncClient(
+        timeout=None
+    ) as client:
 
         response = await client.post(
             f"{comfy_url}/prompt",
-            json={"prompt": workflow}
+            json={
+                "prompt": workflow
+            }
         )
 
         response.raise_for_status()
@@ -236,7 +402,9 @@ async def generate_image(
 
         print(
             f"ComfyUI: запущена генерация "
-            f"preset={preset}, id={prompt_id}"
+            f"preset={preset}, "
+            f"seed={seed}, "
+            f"id={prompt_id}"
         )
 
         # -----------------------------------------------------
@@ -256,48 +424,107 @@ async def generate_image(
             history = response.json()
 
             if prompt_id not in history:
+
                 continue
 
             result = history[prompt_id]
 
-            status = result.get("status", {})
+            status = result.get(
+                "status",
+                {}
+            )
 
-            if status.get("status_str") == "error":
-                raise RuntimeError(
-                    f"ComfyUI вернул ошибку: {result}"
+            if status.get(
+                "status_str"
+            ) == "error":
+
+                error_text = (
+                    f"ComfyUI вернул ошибку: "
+                    f"{result}"
                 )
 
-            outputs = result.get("outputs", {})
+                log_generation(
+                    preset=preset,
+                    seed=seed,
+                    prompt=prompt,
+                    translated_prompt=translated_prompt,
+                    final_prompt=final_prompt,
+                    status="error",
+                    prompt_id=prompt_id,
+                    error=error_text
+                )
+
+                raise RuntimeError(
+                    error_text
+                )
+
+            outputs = result.get(
+                "outputs",
+                {}
+            )
 
             for node_output in outputs.values():
 
-                images = node_output.get("images", [])
+                images = node_output.get(
+                    "images",
+                    []
+                )
 
                 for image_info in images:
 
-                    filename = image_info["filename"]
-                    subfolder = image_info.get("subfolder", "")
+                    filename = image_info[
+                        "filename"
+                    ]
+
+                    subfolder = image_info.get(
+                        "subfolder",
+                        ""
+                    )
+
                     folder_type = image_info.get(
                         "type",
                         "output"
                     )
 
-                    image_response = await client.get(
-                        f"{comfy_url}/view",
-                        params={
-                            "filename": filename,
-                            "subfolder": subfolder,
-                            "type": folder_type,
-                        },
+                    image_response = (
+                        await client.get(
+                            f"{comfy_url}/view",
+                            params={
+                                "filename": filename,
+                                "subfolder": subfolder,
+                                "type": folder_type,
+                            },
+                        )
                     )
 
                     image_response.raise_for_status()
 
-                    print(
-                        f"ComfyUI: изображение готово: {filename}"
+                    # -------------------------------------------------
+                    # Записываем успешную генерацию в лог
+                    # -------------------------------------------------
+
+                    log_generation(
+                        preset=preset,
+                        seed=seed,
+                        prompt=prompt,
+                        translated_prompt=translated_prompt,
+                        final_prompt=final_prompt,
+                        status="success",
+                        prompt_id=prompt_id
                     )
 
-                    return image_response.content
+                    print(
+                        f"ComfyUI: изображение готово: "
+                        f"{filename}"
+                    )
+
+                    return (
+                        image_response.content,
+                        seed,
+                        translated_prompt,
+                        final_prompt,
+                        prompt_id
+                    )
 
 
 # ============================================================
@@ -305,7 +532,9 @@ async def generate_image(
 # ============================================================
 
 @dp.message(CommandStart())
-async def cmd_start(message: types.Message):
+async def cmd_start(
+    message: types.Message
+):
 
     await message.answer(
         "Дарова епта, я нейронка легенды доты и всего мира "
@@ -318,7 +547,9 @@ async def cmd_start(message: types.Message):
 # ============================================================
 
 @dp.message()
-async def handle_message(message: types.Message):
+async def handle_message(
+    message: types.Message
+):
 
     await bot.send_chat_action(
         chat_id=message.chat.id,
@@ -328,13 +559,16 @@ async def handle_message(message: types.Message):
     text = message.text.strip()
 
     # ---------------------------------------------------------
-    # /genpony
+    # /genil
     # ---------------------------------------------------------
 
-    if text.startswith("/genpony "):
+    if text.startswith("/genil "):
 
-        preset = "pony"
-        prompt = text[len("/genpony "):].strip()
+        preset = "il"
+
+        prompt = text[
+            len("/genil "):
+        ].strip()
 
     # ---------------------------------------------------------
     # /genpro
@@ -343,7 +577,10 @@ async def handle_message(message: types.Message):
     elif text.startswith("/genpro "):
 
         preset = "pro"
-        prompt = text[len("/genpro "):].strip()
+
+        prompt = text[
+            len("/genpro "):
+        ].strip()
 
     # ---------------------------------------------------------
     # /genhd
@@ -352,7 +589,10 @@ async def handle_message(message: types.Message):
     elif text.startswith("/genhd "):
 
         preset = "photorealistic"
-        prompt = text[len("/genhd "):].strip()
+
+        prompt = text[
+            len("/genhd "):
+        ].strip()
 
     # ---------------------------------------------------------
     # /genart
@@ -361,7 +601,10 @@ async def handle_message(message: types.Message):
     elif text.startswith("/genart "):
 
         preset = "artistic"
-        prompt = text[len("/genart "):].strip()
+
+        prompt = text[
+            len("/genart "):
+        ].strip()
 
     # ---------------------------------------------------------
     # /genanime
@@ -370,7 +613,10 @@ async def handle_message(message: types.Message):
     elif text.startswith("/genanime "):
 
         preset = "anime"
-        prompt = text[len("/genanime "):].strip()
+
+        prompt = text[
+            len("/genanime "):
+        ].strip()
 
     # ---------------------------------------------------------
     # /gen
@@ -379,18 +625,24 @@ async def handle_message(message: types.Message):
     elif text.startswith("/gen "):
 
         preset = "fast"
-        prompt = text[len("/gen "):].strip()
+
+        prompt = text[
+            len("/gen "):
+        ].strip()
 
     # ---------------------------------------------------------
     # Обычное сообщение
-    # → отправляем в Ollama
     # ---------------------------------------------------------
 
     else:
 
-        ai_response = await ask_ollama(message.text)
+        ai_response = await ask_ollama(
+            message.text
+        )
 
-        await message.answer(ai_response)
+        await message.answer(
+            ai_response
+        )
 
         return
 
@@ -402,10 +654,38 @@ async def handle_message(message: types.Message):
 
         await message.answer(
             "Напиши prompt после команды.\n"
-            "Например: /gen черный Nissan Laurel C35 ночью"
+            "Например: /genil красивая девушка "
+            "с длинными белыми волосами"
         )
 
         return
+
+    # ---------------------------------------------------------
+    # Определяем название preset для Telegram
+    # ---------------------------------------------------------
+
+    preset_names = {
+        "fast": "Fast",
+        "photorealistic": "Photorealistic",
+        "pro": "PRO",
+        "artistic": "Artistic",
+        "anime": "Anime",
+        "il": "Illustrious XL"
+    }
+
+    preset_name = preset_names.get(
+        preset,
+        preset
+    )
+
+    # ---------------------------------------------------------
+    # Отправляем сообщение о начале генерации
+    # ---------------------------------------------------------
+
+    status_message = await message.answer(
+        "🎨 Генерирую изображение...\n\n"
+        f"Preset: {preset_name}"
+    )
 
     # ---------------------------------------------------------
     # Генерация
@@ -413,25 +693,63 @@ async def handle_message(message: types.Message):
 
     try:
 
-        image_bytes = await generate_image(
+        (
+            image_bytes,
+            seed,
+            translated_prompt,
+            final_prompt,
+            prompt_id
+        ) = await generate_image(
             prompt=prompt,
             preset=preset
         )
+
+        # -----------------------------------------------------
+        # Обновляем статус после генерации
+        # -----------------------------------------------------
+
+        await status_message.edit_text(
+            "✅ Изображение готово!\n\n"
+            f"Preset: {preset_name}\n"
+            f"Seed: `{seed}`",
+            parse_mode="Markdown"
+        )
+
+        # -----------------------------------------------------
+        # Отправляем изображение
+        # -----------------------------------------------------
 
         await message.answer_photo(
             types.BufferedInputFile(
                 image_bytes,
                 filename="generated.png"
-            )
+            ),
+            parse_mode="Markdown"
         )
 
     except Exception as e:
 
-        print(f"Ошибка генерации: {e}")
-
-        await message.answer(
-            f"Ошибка при генерации изображения:\n{e}"
+        print(
+            f"Ошибка генерации: {e}"
         )
+
+        # -----------------------------------------------------
+        # Обновляем сообщение об ошибке
+        # -----------------------------------------------------
+
+        try:
+
+            await status_message.edit_text(
+                "❌ Ошибка при генерации:\n\n"
+                f"{e}"
+            )
+
+        except Exception:
+
+            await message.answer(
+                "❌ Ошибка при генерации изображения:\n"
+                f"{e}"
+            )
 
 
 # ============================================================
@@ -458,13 +776,13 @@ async def set_commands():
         ),
 
         BotCommand(
-            command="genpony",
-            description="Генерация Pony V6 XL"
+            command="genil",
+            description="Генерация Illustrious XL"
         ),
 
         BotCommand(
             command="genpro",
-            description="PRO генерация 1536×1536"
+            description="PRO генерация"
         ),
 
         BotCommand(
@@ -478,7 +796,9 @@ async def set_commands():
         ),
     ]
 
-    await bot.set_my_commands(commands)
+    await bot.set_my_commands(
+        commands
+    )
 
 
 # ============================================================
@@ -487,7 +807,9 @@ async def set_commands():
 
 async def main():
 
-    print("Бот запущен и готов к работе!")
+    print(
+        "Бот запущен и готов к работе!"
+    )
 
     await bot.delete_webhook(
         drop_pending_updates=True
@@ -495,8 +817,11 @@ async def main():
 
     await set_commands()
 
-    await dp.start_polling(bot)
+    await dp.start_polling(
+        bot
+    )
 
 
 if __name__ == "__main__":
+
     asyncio.run(main())
