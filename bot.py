@@ -7,6 +7,7 @@ import random
 from pathlib import Path
 import os
 import re
+import shlex
 from datetime import datetime
 from dotenv import load_dotenv
 from aiogram.types import BotCommand
@@ -33,6 +34,9 @@ LOG_DIR = BASE_DIR / "logs"
 LOG_DIR.mkdir(exist_ok=True)
 
 GENERATION_LOG = LOG_DIR / "generations.jsonl"
+
+# Папка с LoRA
+LORA_DIR = BASE_DIR / "ComfyUI" / "models" / "loras"
 
 
 # ============================================================
@@ -68,14 +72,9 @@ STYLE_PROMPTS = {
         "beautiful face, detailed background"
     ),
 
-    "lora1": (
+    "lora": (
         "masterpiece, best quality, highly detailed, detailed eyes, "
         "beautiful face, detailed background"
-    ),
-    
-    "lora2": (
-        "masterpiece, best quality, highly detailed, "
-        "detailed eyes, beautiful face, detailed background"
     ),
 }
 
@@ -121,13 +120,7 @@ NEGATIVE_PROMPTS = {
         "duplicate, text, watermark, signature"
     ),
 
-    "lora1": (
-        "worst quality, low quality, lowres, blurry, "
-        "bad anatomy, bad hands, extra fingers, extra limbs, "
-        "duplicate, text, watermark, signature"
-    ),
-
-    "lora2": (
+    "lora": (
         "worst quality, low quality, lowres, blurry, "
         "bad anatomy, bad hands, extra fingers, extra limbs, "
         "duplicate, text, watermark, signature"
@@ -146,9 +139,108 @@ PRESETS = {
     "artistic": "sdxl_artistic.json",
     "anime": "sdxl_anime.json",
     "il": "sdxl_il.json",
-    "lora1": "sdxl_lora1.json",
-    "lora2": "sdxl_lora2.json",
+    "lora": "sdxl_lora.json",
 }
+
+
+# ============================================================
+# LORA
+# ============================================================
+
+def get_lora_files():
+    """
+    Возвращает все .safetensors из папки LoRA.
+    """
+
+    if not LORA_DIR.exists():
+        return []
+
+    return sorted(
+        [
+            file
+            for file in LORA_DIR.iterdir()
+            if file.is_file()
+            and file.suffix.lower() == ".safetensors"
+        ],
+        key=lambda x: x.name.lower()
+    )
+
+
+def find_lora(name: str):
+    """
+    Ищет LoRA по имени.
+
+    Можно писать:
+
+        /lora my_style prompt
+
+    если файл:
+
+        my_style.safetensors
+
+    Также можно указывать полное имя:
+
+        /lora my_style.safetensors prompt
+
+    Поиск регистронезависимый.
+    """
+
+    name = name.strip()
+
+    if not name:
+        return None
+
+    # Если пользователь написал расширение
+    if name.lower().endswith(".safetensors"):
+        target = name[:-12]
+    else:
+        target = name
+
+    target = target.lower()
+
+    for file in get_lora_files():
+
+        # Имя без .safetensors
+        stem = file.stem.lower()
+
+        if stem == target:
+            return file
+
+        # На случай, если сравнивается полное имя
+        if file.name.lower() == name.lower():
+            return file
+
+    return None
+
+
+def get_lora_list_text():
+    """
+    Формирует список доступных LoRA для Telegram.
+    """
+
+    files = get_lora_files()
+
+    if not files:
+        return (
+            "В папке LoRA пока нет .safetensors файлов.\n\n"
+            f"Папка:\n{LORA_DIR}"
+        )
+
+    lines = [
+        "Доступные Illustrious XL LoRA:\n"
+    ]
+
+    for i, file in enumerate(files, start=1):
+        lines.append(
+            f"{i}. `{file.stem}`"
+        )
+
+    lines.append(
+        "\nИспользование:\n"
+        "/lora название prompt"
+    )
+
+    return "\n".join(lines)
 
 
 # ============================================================
@@ -163,12 +255,9 @@ def log_generation(
     final_prompt,
     status,
     prompt_id=None,
-    error=None
+    error=None,
+    lora_name=None
 ):
-    """
-    Записывает информацию о генерации
-    в logs/generations.jsonl
-    """
 
     entry = {
         "time": datetime.now().isoformat(
@@ -181,6 +270,9 @@ def log_generation(
         "final_prompt": final_prompt,
         "status": status,
     }
+
+    if lora_name is not None:
+        entry["lora"] = lora_name
 
     if prompt_id is not None:
         entry["prompt_id"] = prompt_id
@@ -275,25 +367,9 @@ def translate_prompt(prompt: str) -> str:
 async def generate_image(
     prompt: str,
     preset: str = "fast",
-    seed: int | None = None
+    seed: int | None = None,
+    lora_file: Path | None = None
 ):
-    """
-    Генерирует изображение через ComfyUI.
-
-    Если seed не указан:
-        генерируется случайный seed.
-
-    Если seed указан:
-        используется именно он.
-
-    Возвращает:
-
-        image_bytes
-        seed
-        translated_prompt
-        final_prompt
-        prompt_id
-    """
 
     if preset not in PRESETS:
 
@@ -319,6 +395,31 @@ async def generate_image(
     ) as f:
 
         workflow = json.load(f)
+
+    # ---------------------------------------------------------
+    # LoRA
+    # ---------------------------------------------------------
+
+    if preset == "lora":
+
+        if lora_file is None:
+            raise ValueError(
+                "LoRA не указана."
+            )
+
+        if not lora_file.exists():
+            raise FileNotFoundError(
+                f"LoRA не найдена: {lora_file}"
+            )
+
+        # Node 84 = Load LoRA
+        workflow["84"]["inputs"]["lora_name"] = (
+            lora_file.name
+        )
+
+        print(
+            f"Используется LoRA: {lora_file.name}"
+        )
 
     # ---------------------------------------------------------
     # Перевод prompt
@@ -360,10 +461,6 @@ async def generate_image(
 
     # ---------------------------------------------------------
     # CLIP
-    #
-    # 73 = Positive CLIP
-    # 74 = Negative CLIP
-    # 76 = KSampler
     # ---------------------------------------------------------
 
     workflow["73"]["inputs"]["text_g"] = (
@@ -418,7 +515,7 @@ async def generate_image(
         workflow["84"]["inputs"]["seed"] = seed
 
     # ---------------------------------------------------------
-    # Отправляем workflow в ComfyUI
+    # Отправляем workflow
     # ---------------------------------------------------------
 
     async with httpx.AsyncClient(
@@ -462,7 +559,6 @@ async def generate_image(
             history = response.json()
 
             if prompt_id not in history:
-
                 continue
 
             result = history[prompt_id]
@@ -489,7 +585,12 @@ async def generate_image(
                     final_prompt=final_prompt,
                     status="error",
                     prompt_id=prompt_id,
-                    error=error_text
+                    error=error_text,
+                    lora_name=(
+                        lora_file.name
+                        if lora_file
+                        else None
+                    )
                 )
 
                 raise RuntimeError(
@@ -537,10 +638,6 @@ async def generate_image(
 
                     image_response.raise_for_status()
 
-                    # -------------------------------------------------
-                    # Записываем успешную генерацию в лог
-                    # -------------------------------------------------
-
                     log_generation(
                         preset=preset,
                         seed=seed,
@@ -548,7 +645,12 @@ async def generate_image(
                         translated_prompt=translated_prompt,
                         final_prompt=final_prompt,
                         status="success",
-                        prompt_id=prompt_id
+                        prompt_id=prompt_id,
+                        lora_name=(
+                            lora_file.name
+                            if lora_file
+                            else None
+                        )
                     )
 
                     print(
@@ -596,25 +698,109 @@ async def handle_message(
 
     text = message.text.strip()
 
-    # ---------------------------------------------------------
-    # Определяем команду и preset
-    # ---------------------------------------------------------
+    # ========================================================
+    # /lora
+    # ========================================================
 
-    if text.startswith("/lora1 "):
+    if text == "/lora":
 
-        preset = "lora1"
+        await message.answer(
+            get_lora_list_text(),
+            parse_mode="Markdown"
+        )
 
-        prompt = text[
-            len("/lora1 "):
+        return
+
+    if text.startswith("/lora "):
+
+        raw_args = text[
+            len("/lora "):
         ].strip()
 
-    elif text.startswith("/lora2 "):
+        # -----------------------------------------------------
+        # Разбираем аргументы через shlex
+        #
+        # /lora my_style девушка
+        #
+        # или:
+        #
+        # /lora "my style" девушка
+        # -----------------------------------------------------
 
-        preset = "lora2"
+        try:
 
-        prompt = text[
-            len("/lora2 "):
-        ].strip()
+            args = shlex.split(
+                raw_args
+            )
+
+        except ValueError as e:
+
+            await message.answer(
+                f"❌ Ошибка разбора команды: {e}\n\n"
+                "Пример:\n"
+                "/lora my_style девушка с белыми волосами"
+            )
+
+            return
+
+        if len(args) < 2:
+
+            await message.answer(
+                "❌ Нужно указать LoRA и prompt.\n\n"
+                "Пример:\n"
+                "/lora my_style девушка с белыми волосами"
+            )
+
+            return
+
+        lora_name = args[0]
+
+        # Остальные аргументы = prompt
+        prompt = " ".join(
+            args[1:]
+        )
+
+        # -----------------------------------------------------
+        # Ищем LoRA
+        # -----------------------------------------------------
+
+        lora_file = find_lora(
+            lora_name
+        )
+
+        if lora_file is None:
+
+            available = get_lora_files()
+
+            if available:
+
+                names = "\n".join(
+                    f"• `{file.stem}`"
+                    for file in available
+                )
+
+                await message.answer(
+                    "❌ LoRA не найдена.\n\n"
+                    f"Ты указал:\n`{lora_name}`\n\n"
+                    "Доступные LoRA:\n"
+                    f"{names}",
+                    parse_mode="Markdown"
+                )
+
+            else:
+
+                await message.answer(
+                    "❌ В папке LoRA нет файлов `.safetensors`.\n\n"
+                    f"Папка:\n{LORA_DIR}"
+                )
+
+            return
+
+        preset = "lora"
+
+    # ========================================================
+    # Остальные команды
+    # ========================================================
 
     elif text.startswith("/genil "):
 
@@ -624,6 +810,8 @@ async def handle_message(
             len("/genil "):
         ].strip()
 
+        lora_file = None
+
     elif text.startswith("/genpro "):
 
         preset = "pro"
@@ -631,6 +819,8 @@ async def handle_message(
         prompt = text[
             len("/genpro "):
         ].strip()
+
+        lora_file = None
 
     elif text.startswith("/genhd "):
 
@@ -640,6 +830,8 @@ async def handle_message(
             len("/genhd "):
         ].strip()
 
+        lora_file = None
+
     elif text.startswith("/genart "):
 
         preset = "artistic"
@@ -647,6 +839,8 @@ async def handle_message(
         prompt = text[
             len("/genart "):
         ].strip()
+
+        lora_file = None
 
     elif text.startswith("/genanime "):
 
@@ -656,6 +850,8 @@ async def handle_message(
             len("/genanime "):
         ].strip()
 
+        lora_file = None
+
     elif text.startswith("/gen "):
 
         preset = "fast"
@@ -663,6 +859,8 @@ async def handle_message(
         prompt = text[
             len("/gen "):
         ].strip()
+
+        lora_file = None
 
     else:
 
@@ -676,19 +874,9 @@ async def handle_message(
 
         return
 
-    # ---------------------------------------------------------
-    # Извлекаем --seed из конца prompt
-    #
-    # Пример:
-    #
-    # /genil красивая девушка --seed 123456
-    #
-    # prompt:
-    #   красивая девушка
-    #
-    # seed:
-    #   123456
-    # ---------------------------------------------------------
+    # ========================================================
+    # SEED
+    # ========================================================
 
     seed = None
 
@@ -704,7 +892,6 @@ async def handle_message(
             seed_match.group(1)
         )
 
-        # Убираем --seed XXXXX из prompt
         prompt = prompt[
             :seed_match.start()
         ].strip()
@@ -713,9 +900,9 @@ async def handle_message(
             f"Найден ручной seed: {seed}"
         )
 
-    # ---------------------------------------------------------
+    # ========================================================
     # Проверяем seed
-    # ---------------------------------------------------------
+    # ========================================================
 
     if seed is not None:
 
@@ -728,52 +915,64 @@ async def handle_message(
 
             return
 
-    # ---------------------------------------------------------
+    # ========================================================
     # Проверяем prompt
-    # ---------------------------------------------------------
+    # ========================================================
 
     if not prompt:
 
         await message.answer(
             "Напиши prompt после команды.\n\n"
-            "Пример:\n"
-            "/genil красивая девушка "
-            "с длинными белыми волосами\n\n"
-            "С ручным seed:\n"
-            "/genil красивая девушка "
-            "с длинными белыми волосами "
+            "Например:\n"
+            "/genil красивая девушка\n\n"
+            "С LoRA:\n"
+            "/lora my_style красивая девушка\n\n"
+            "С seed:\n"
+            "/lora my_style красивая девушка "
             "--seed 416407258944610701"
         )
 
         return
 
-    # ---------------------------------------------------------
-    # Определяем название preset для Telegram
-    # ---------------------------------------------------------
+    # ========================================================
+    # НАЗВАНИЕ PRESET
+    # ========================================================
 
-    preset_names = {
-        "fast": "Fast",
-        "photorealistic": "Photorealistic",
-        "pro": "PRO",
-        "artistic": "Artistic",
-        "anime": "Anime",
-        "il": "Illustrious XL",
-        "lora1": "Illustrious XL + 90s Anime LoRA",
-        "lora2": "Illustrious XL + Windranger"
-    }
+    if preset == "lora":
 
-    preset_name = preset_names.get(
-        preset,
-        preset
-    )
+        preset_name = (
+            f"Illustrious XL + {lora_file.stem}"
+        )
 
-    # ---------------------------------------------------------
-    # Отправляем сообщение о начале генерации
-    # ---------------------------------------------------------
+    else:
+
+        preset_names = {
+            "fast": "Fast",
+            "photorealistic": "Photorealistic",
+            "pro": "PRO",
+            "artistic": "Artistic",
+            "anime": "Anime",
+            "il": "Illustrious XL",
+        }
+
+        preset_name = preset_names.get(
+            preset,
+            preset
+        )
+
+    # ========================================================
+    # STATUS
+    # ========================================================
 
     if seed is not None:
 
         status_text = (
+            "🎨 Генерирую изображение...\n\n"
+            f"Preset: {preset_name}\n"
+            f"LoRA: `{lora_file.stem}`\n"
+            f"Seed: `{seed}`"
+            if preset == "lora"
+            else
             "🎨 Генерирую изображение...\n\n"
             f"Preset: {preset_name}\n"
             f"Seed: `{seed}`"
@@ -784,6 +983,12 @@ async def handle_message(
         status_text = (
             "🎨 Генерирую изображение...\n\n"
             f"Preset: {preset_name}\n"
+            f"LoRA: `{lora_file.stem}`\n"
+            "Seed: случайный"
+            if preset == "lora"
+            else
+            "🎨 Генерирую изображение...\n\n"
+            f"Preset: {preset_name}\n"
             "Seed: случайный"
         )
 
@@ -792,9 +997,9 @@ async def handle_message(
         parse_mode="Markdown"
     )
 
-    # ---------------------------------------------------------
-    # Генерация
-    # ---------------------------------------------------------
+    # ========================================================
+    # GENERATION
+    # ========================================================
 
     try:
 
@@ -807,23 +1012,24 @@ async def handle_message(
         ) = await generate_image(
             prompt=prompt,
             preset=preset,
-            seed=seed
+            seed=seed,
+            lora_file=lora_file
         )
-
-        # -----------------------------------------------------
-        # Обновляем статус после генерации
-        # -----------------------------------------------------
 
         await status_message.edit_text(
-            "✅ Изображение готово!\n\n"
-            f"Preset: {preset_name}\n"
-            f"Seed: `{seed}`",
+            (
+                "✅ Изображение готово!\n\n"
+                f"Preset: {preset_name}\n"
+                f"LoRA: `{lora_file.stem}`\n"
+                f"Seed: `{seed}`"
+                if preset == "lora"
+                else
+                "✅ Изображение готово!\n\n"
+                f"Preset: {preset_name}\n"
+                f"Seed: `{seed}`"
+            ),
             parse_mode="Markdown"
         )
-
-        # -----------------------------------------------------
-        # Отправляем изображение
-        # -----------------------------------------------------
 
         await message.answer_photo(
             types.BufferedInputFile(
@@ -837,10 +1043,6 @@ async def handle_message(
         print(
             f"Ошибка генерации: {e}"
         )
-
-        # -----------------------------------------------------
-        # Обновляем сообщение об ошибке
-        # -----------------------------------------------------
 
         try:
 
@@ -872,17 +1074,17 @@ async def set_commands():
 
         BotCommand(
             command="gen",
-            description="Быстрая генерация изображения"
+            description="Быстрая генерация"
         ),
 
         BotCommand(
             command="genhd",
-            description="Фотореалистичное изображение"
+            description="Фотореалистичная генерация"
         ),
 
         BotCommand(
             command="genil",
-            description="Генерация Illustrious XL"
+            description="Illustrious XL"
         ),
 
         BotCommand(
@@ -897,17 +1099,12 @@ async def set_commands():
 
         BotCommand(
             command="genanime",
-            description="Генерация в стиле аниме"
+            description="Anime генерация"
         ),
 
         BotCommand(
-            command="lora1",
-            description="Illustrious XL + 90s Anime LoRA"
-        ),
-   
-        BotCommand(
-            command="lora2",
-            description="Illustrious XL + Windranger"
+            command="lora",
+            description="Illustrious XL + выбранная LoRA"
         ),
     ]
 
