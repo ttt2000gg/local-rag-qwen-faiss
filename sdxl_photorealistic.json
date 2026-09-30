@@ -13,7 +13,7 @@
       "width": 1024,
       "height": 1024,
       "crop_w": 0,
-      "crop_h": 0,
+      "crop_h": 23,
       "target_width": 1024,
       "target_height": 1024,
       "text_g": "photorealistic photography, realistic materials, realistic lighting, realistic textures, natural proportions, highly detailed",
@@ -30,7 +30,7 @@
   },
   "74": {
     "inputs": {
-      "width": 1024,
+      "width": 974,
       "height": 1024,
       "crop_w": 0,
       "crop_h": 0,
