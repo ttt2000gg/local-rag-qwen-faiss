@@ -1,0 +1,13 @@
+__pycache__
+.assets
+.claude
+.caches
+.idea
+.jobs
+.vscode
+
+# Local FaceFusion setup
+facefusion/core.py.nsfw_disabled
+facefusion/content_analyser.py.nsfw_disabled
+run_facefusion_cuda.sh
+venv/

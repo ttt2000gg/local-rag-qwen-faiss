@@ -44,7 +44,7 @@ generated/
 *.webp
 
 # =========================
-# ComfyUI
+# ComfyUI and more
 # =========================
 
 ComfyUI/
@@ -89,3 +89,14 @@ Thumbs.db
 *.tmp
 *.temp
 snapshots/
+
+# FaceFusion local environment / generated files
+facefusion/venv/
+facefusion/.assets/
+facefusion/__pycache__/
+facefusion/facefusion/__pycache__/
+facefusion/*.log
+facefusion/*.mp4
+facefusion/*.png
+facefusion/*.jpg
+facefusion/*.jpeg
