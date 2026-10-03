@@ -48,6 +48,7 @@ generated/
 # =========================
 
 ComfyUI/
+ComfyUI-Manager/
 ComfyUI/venv/
 ComfyUI/models/
 ComfyUI/output/
@@ -87,3 +88,4 @@ Thumbs.db
 
 *.tmp
 *.temp
+snapshots/

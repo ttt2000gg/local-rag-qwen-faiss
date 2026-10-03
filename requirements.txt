@@ -6,3 +6,4 @@ uvicorn
 aiogram
 httpx
 python-dotenv
+argostranslate
